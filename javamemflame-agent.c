@@ -1,0 +1,177 @@
+/*
+ * libmemagent: JVM agent to track memory allocations
+ *
+ * Copyright (C) 2015 Jesper Pedersen <jesper.pedersen@comcast.net>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
+
+#include <unistd.h>
+#include <stdio.h>
+#include <string.h>
+
+#include <sys/types.h>
+
+#include <jni.h>
+#include <jvmti.h>
+#include <jvmticmlr.h>
+
+#include "mem-info-file.h"
+
+FILE *file = NULL;
+
+void clean_class_name(char *dest, size_t dest_size, char *signature) {
+   int array_counter, array = 0;
+   int i = 0;
+   
+   while (signature[i] == '[')
+   {
+      array++;
+      i++;
+   }
+   
+   char *src = signature + i + 1;
+   for (i = 0; i < (dest_size - 1) && src[i]; i++)
+   {
+      char c = src[i];
+
+      if (c == '/')
+      {
+         c = '.';
+      }
+      else if (c == ';')
+      {
+         for (array_counter = 0; array_counter < array; array_counter++)
+         {
+            dest[i++] = '[';
+            dest[i++] = ']';
+         }
+         c = 0;
+      }
+      dest[i] = c;
+   }
+   dest[i] = 0;
+}
+
+static void
+signature_string(jvmtiEnv *jvmti, jmethodID method, char *output, size_t noutput)
+{
+   char *name;
+   jclass class;
+   char *csig;
+
+   (*jvmti)->GetMethodName(jvmti, method, &name, NULL, NULL);
+   (*jvmti)->GetMethodDeclaringClass(jvmti, method, &class);
+   (*jvmti)->GetClassSignature(jvmti, class, &csig, NULL);
+
+   char cleaned_class_name[1024];
+   clean_class_name(cleaned_class_name, sizeof(cleaned_class_name), csig);
+   
+   snprintf(output, noutput, "%s:.%s", cleaned_class_name, name);
+
+   (*jvmti)->Deallocate(jvmti, name);
+   (*jvmti)->Deallocate(jvmti, csig);
+}
+
+static void JNICALL
+callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject object, jclass object_klass, jlong size)
+{
+   char *allocatedClassName;
+   jvmtiFrameInfo frames[10];
+   jint count;
+   int i;
+
+   char cleaned_allocated_class_name[1024];
+   char allocated_info[1024];
+   char line[1024];
+
+   snprintf(line, sizeof(line), "java;");
+   
+   (*jvmti)->GetClassSignature(jvmti, object_klass, &allocatedClassName, NULL);
+
+   clean_class_name(cleaned_allocated_class_name, sizeof(cleaned_allocated_class_name), allocatedClassName);
+      
+   (*jvmti)->GetStackTrace(jvmti, thread, 0, 10, (jvmtiFrameInfo *)&frames, &count);
+
+   for (i = count - 1; i >= 0; i--)
+   {
+      char entry[1024];
+      signature_string(jvmti, frames[i].method, entry, sizeof(entry));
+
+      strcat(line, entry);
+      strcat(line, ";");
+   }
+
+   snprintf(allocated_info, sizeof(allocated_info), "%s(%d) 1", cleaned_allocated_class_name, (jint)size);
+   
+   strcat(line, allocated_info);
+
+   mem_info_write_entry(file, line, sizeof(line));
+   
+   (*jvmti)->Deallocate(jvmti, allocatedClassName);
+}
+
+jvmtiError
+enable_capabilities(jvmtiEnv *jvmti)
+{
+   jvmtiCapabilities capabilities;
+
+   memset(&capabilities,0, sizeof(capabilities));
+   capabilities.can_generate_all_class_hook_events  = 1;
+   capabilities.can_tag_objects                     = 1;
+   capabilities.can_generate_object_free_events     = 1;
+   capabilities.can_get_source_file_name            = 1;
+   capabilities.can_get_line_numbers                = 1;
+   capabilities.can_generate_vm_object_alloc_events = 1;
+   capabilities.can_generate_compiled_method_load_events = 1;
+
+   // Request these capabilities for this JVM TI environment.
+   return (*jvmti)->AddCapabilities(jvmti, &capabilities);
+}
+
+jvmtiError
+set_callbacks(jvmtiEnv *jvmti)
+{
+   jvmtiEventCallbacks callbacks;
+
+   memset(&callbacks, 0, sizeof(callbacks));
+   callbacks.VMObjectAlloc = &callbackVMObjectAlloc;
+   return (*jvmti)->SetEventCallbacks(jvmti, &callbacks, (jint)sizeof(callbacks));
+}
+
+JNIEXPORT jint JNICALL 
+Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
+{
+   file = mem_info_open(getpid());
+
+   jvmtiEnv *jvmti;
+   (*vm)->GetEnv(vm, (void **)&jvmti, JVMTI_VERSION_1);
+   enable_capabilities(jvmti);
+   set_callbacks(jvmti);
+
+   (*jvmti)->SetEventNotificationMode(jvmti, JVMTI_ENABLE,
+                                      JVMTI_EVENT_VM_OBJECT_ALLOC, (jthread)NULL);
+   
+   (*jvmti)->GenerateEvents(jvmti, JVMTI_EVENT_VM_OBJECT_ALLOC);
+
+   return 0;
+}
+
+JNIEXPORT void JNICALL 
+Agent_OnUnload(JavaVM *vm)
+{
+   mem_info_close(file);
+   file = NULL;
+}
