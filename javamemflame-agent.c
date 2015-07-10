@@ -31,6 +31,9 @@
 #include "mem-info-file.h"
 
 FILE *file = NULL;
+int depth = 10;
+int statistics = 0;
+long total = 0;
 
 void clean_class_name(char *dest, size_t dest_size, char *signature) {
    int array_counter, array = 0;
@@ -42,27 +45,63 @@ void clean_class_name(char *dest, size_t dest_size, char *signature) {
       i++;
    }
    
-   char *src = signature + i + 1;
-   for (i = 0; i < (dest_size - 1) && src[i]; i++)
+   if (signature[i] == 'Z')
    {
-      char c = src[i];
-
-      if (c == '/')
-      {
-         c = '.';
-      }
-      else if (c == ';')
-      {
-         for (array_counter = 0; array_counter < array; array_counter++)
-         {
-            dest[i++] = '[';
-            dest[i++] = ']';
-         }
-         c = 0;
-      }
-      dest[i] = c;
+      strcpy(dest, "boolean");
    }
-   dest[i] = 0;
+   else if (signature[i] == 'B')
+   {
+      strcpy(dest, "byte");
+   }
+   else if (signature[i] == 'C')
+   {
+      strcpy(dest, "char");
+   }
+   else if (signature[i] == 'D')
+   {
+      strcpy(dest, "double");
+   }
+   else if (signature[i] == 'F')
+   {
+      strcpy(dest, "float");
+   }
+   else if (signature[i] == 'I')
+   {
+      strcpy(dest, "int");
+   }
+   else if (signature[i] == 'J')
+   {
+      strcpy(dest, "long");
+   }
+   else if (signature[i] == 'S')
+   {
+      strcpy(dest, "short");
+   }
+   else if (signature[i] == 'L')
+   {
+      char *src = signature + i + 1;
+      for (i = 0; i < (dest_size - 1) && src[i]; i++)
+      {
+         char c = src[i];
+
+         if (c == '/')
+         {
+            c = '.';
+         }
+         else if (c == ';')
+         {
+            c = 0;
+         }
+         dest[i] = c;
+      }
+   }
+
+   for (array_counter = 0; array_counter < array; array_counter++)
+   {
+      strcat(dest, "[]");
+   }
+   
+   dest[strlen(dest) + 1] = 0;
 }
 
 static void
@@ -89,21 +128,24 @@ static void JNICALL
 callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject object, jclass object_klass, jlong size)
 {
    char *allocatedClassName;
-   jvmtiFrameInfo frames[10];
+   jvmtiFrameInfo frames[depth];
    jint count;
    int i;
 
    char cleaned_allocated_class_name[1024];
    char allocated_info[1024];
-   char line[1024];
+   char line[2048];
 
+   if (statistics)
+      total += size;
+   
    snprintf(line, sizeof(line), "java;");
    
    (*jvmti)->GetClassSignature(jvmti, object_klass, &allocatedClassName, NULL);
 
    clean_class_name(cleaned_allocated_class_name, sizeof(cleaned_allocated_class_name), allocatedClassName);
-      
-   (*jvmti)->GetStackTrace(jvmti, thread, 0, 10, (jvmtiFrameInfo *)&frames, &count);
+
+   (*jvmti)->GetStackTrace(jvmti, thread, (jint)0, (jint)depth, (jvmtiFrameInfo *)&frames, &count);
 
    for (i = count - 1; i >= 0; i--)
    {
@@ -151,9 +193,58 @@ set_callbacks(jvmtiEnv *jvmti)
    return (*jvmti)->SetEventCallbacks(jvmti, &callbacks, (jint)sizeof(callbacks));
 }
 
+void
+option_depth(char* option)
+{
+   char* equal = strchr(option, '=');
+   if (equal != NULL)
+   {
+      int d = atoi(equal + 1);
+      if (d > 0 && d <= 20)
+         depth = d;
+   }
+}
+
+void
+option_statistics(char* option)
+{
+   statistics = strstr(option, "statistics") != NULL;
+}
+
 JNIEXPORT jint JNICALL 
 Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 {
+   if (options != NULL)
+   {
+      if (strchr(options, ',') != NULL)
+      {
+         char* token = strtok(options, ",");
+         while (token != NULL)
+         {
+            if (strstr(token, "depth") != NULL)
+            {
+               option_depth(token);
+            }
+            else if (strstr(token, "statistics") != NULL)
+            {
+               option_statistics(token);
+            }
+            token = strtok(NULL, ",");
+         }
+      }
+      else
+      {
+         if (strstr(options, "depth") != NULL)
+         {
+            option_depth(options);
+         }
+         else if (strstr(options, "statistics") != NULL)
+         {
+            option_statistics(options);
+         }
+      }
+   }
+
    file = mem_info_open(getpid());
 
    jvmtiEnv *jvmti;
@@ -172,6 +263,9 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 JNIEXPORT void JNICALL 
 Agent_OnUnload(JavaVM *vm)
 {
+   if (statistics)
+      printf("Total allocation: %ld\n", total);
+
    mem_info_close(file);
    file = NULL;
 }
