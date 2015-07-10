@@ -34,6 +34,7 @@ FILE *file = NULL;
 int depth = 10;
 int statistics = 0;
 long total = 0;
+int relative = 0;
 
 void clean_class_name(char *dest, size_t dest_size, char *signature) {
    int array_counter, array = 0;
@@ -152,7 +153,8 @@ callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject obj
       strcat(line, ";");
    }
 
-   snprintf(allocated_info, sizeof(allocated_info), "%s(%d) %d", cleaned_allocated_class_name, (jint)size, (jint)size);
+   snprintf(allocated_info, sizeof(allocated_info), "%s(%d) %d", cleaned_allocated_class_name, (jint)size,
+            relative ? (jint)size : 1);
    
    strcat(line, allocated_info);
 
@@ -207,6 +209,12 @@ option_statistics(char* option)
    statistics = strstr(option, "statistics") != NULL;
 }
 
+void
+option_relative(char* option)
+{
+   relative = strstr(option, "relative") != NULL;
+}
+
 JNIEXPORT jint JNICALL 
 Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 {
@@ -225,6 +233,10 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
             {
                option_statistics(token);
             }
+            else if (strstr(token, "relative") != NULL)
+            {
+               option_relative(token);
+            }
             token = strtok(NULL, ",");
          }
       }
@@ -237,6 +249,10 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
          else if (strstr(options, "statistics") != NULL)
          {
             option_statistics(options);
+         }
+         else if (strstr(options, "relative") != NULL)
+         {
+            option_relative(options);
          }
       }
    }

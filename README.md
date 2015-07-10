@@ -29,6 +29,8 @@ The following options are supported.
 
 `statistics`: Outputs statistics at JVM termination.
 
+`relative`: Adjusts the sample size to be relative to the allocation size. Useful for finding few big allocations.
+
 Multiple options can be selected using the ',' characters, like
 
 	java -agentpath:/path/to/libjavamemflame.so=depth=8,statistics ...
