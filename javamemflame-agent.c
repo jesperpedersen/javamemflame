@@ -84,11 +84,7 @@ void clean_class_name(char *dest, size_t dest_size, char *signature) {
       {
          char c = src[i];
 
-         if (c == '/')
-         {
-            c = '.';
-         }
-         else if (c == ';')
+         if (c == ';')
          {
             c = 0;
          }
@@ -160,7 +156,7 @@ callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject obj
    
    strcat(line, allocated_info);
 
-   mem_info_write_entry(file, line, sizeof(line));
+   mem_info_write_entry(file, line);
    
    (*jvmti)->Deallocate(jvmti, allocatedClassName);
 }

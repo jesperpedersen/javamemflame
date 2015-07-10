@@ -25,4 +25,4 @@ int
 mem_info_close(FILE* file);
 
 void
-mem_info_write_entry(FILE* file, const char* clz, unsigned int size);
+mem_info_write_entry(FILE* file, const char* line);
