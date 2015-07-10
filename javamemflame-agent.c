@@ -152,7 +152,7 @@ callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject obj
       strcat(line, ";");
    }
 
-   snprintf(allocated_info, sizeof(allocated_info), "%s(%d) 1", cleaned_allocated_class_name, (jint)size);
+   snprintf(allocated_info, sizeof(allocated_info), "%s(%d) %d", cleaned_allocated_class_name, (jint)size, (jint)size);
    
    strcat(line, allocated_info);
 
