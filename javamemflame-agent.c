@@ -33,7 +33,9 @@
 FILE *file = NULL;
 int depth = 10;
 int statistics = 0;
-long total = 0;
+long allo_count = 0;
+long allo_total = 0;
+int max_depth = 0;
 int relative = 0;
 
 void clean_class_name(char *dest, size_t dest_size, char *signature) {
@@ -127,6 +129,7 @@ callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject obj
    char *allocatedClassName;
    jvmtiFrameInfo frames[depth];
    jint count;
+   jint frame_count;
    int i;
 
    char cleaned_allocated_class_name[1024];
@@ -134,7 +137,14 @@ callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject obj
    char line[2048];
 
    if (statistics)
-      total += size;
+   {
+      allo_count += 1;
+      allo_total += size;
+
+      (*jvmti)->GetFrameCount(jvmti, thread, &frame_count);
+      if (frame_count > max_depth)
+         max_depth = frame_count;
+   }
    
    snprintf(line, sizeof(line), "java;");
    
@@ -276,7 +286,11 @@ JNIEXPORT void JNICALL
 Agent_OnUnload(JavaVM *vm)
 {
    if (statistics)
-      printf("Total allocation: %ld\n", total);
+   {
+      printf("Allocation count: %ld\n", allo_count);
+      printf("Total allocation: %ld\n", allo_total);
+      printf("Max frame depth : %d\n", max_depth);
+   }
 
    mem_info_close(file);
    file = NULL;
