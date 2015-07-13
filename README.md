@@ -31,9 +31,12 @@ The following options are supported.
 
 `relative`: Adjusts the sample size to be relative to the allocation size. Useful for finding few big allocations.
 
+`includes=<package>[:<package>]*`: Define the package(s) that should be included in the recorded information within the
+stack frame depth. Alternative is to use tools like `grep` after the run. Default is all packages.
+
 Multiple options can be selected using the ',' characters, like
 
-	java -agentpath:/path/to/libjavamemflame.so=depth=8,statistics ...
+	java -agentpath:/path/to/libjavamemflame.so=depth=8,includes=bar.foo.pkg1:bar.foo.pkg2 ...
 
 ## Thanks to
 

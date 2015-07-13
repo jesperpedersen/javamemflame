@@ -20,6 +20,7 @@
 
 #include <unistd.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <sys/types.h>
@@ -37,6 +38,8 @@ long allo_count = 0;
 long allo_total = 0;
 int max_depth = 0;
 int relative = 0;
+char** includes = NULL;
+int number_of_includes = 0;
 
 void clean_class_name(char *dest, size_t dest_size, char *signature) {
    int array_counter, array = 0;
@@ -136,15 +139,7 @@ callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject obj
    char allocated_info[1024];
    char line[2048];
 
-   if (statistics)
-   {
-      allo_count += 1;
-      allo_total += size;
-
-      (*jvmti)->GetFrameCount(jvmti, thread, &frame_count);
-      if (frame_count > max_depth)
-         max_depth = frame_count;
-   }
+   int included = 0;
    
    snprintf(line, sizeof(line), "java;");
    
@@ -168,7 +163,33 @@ callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject obj
    
    strcat(line, allocated_info);
 
-   mem_info_write_entry(file, line);
+   if (includes == NULL)
+   {
+      mem_info_write_entry(file, line);
+      included = 1;
+   }
+   else
+   {
+      for (i = 0; i < number_of_includes && !included; i++)
+      {
+         char* entry = includes[i];
+         if (strstr(line, entry) != NULL)
+         {
+            mem_info_write_entry(file, line);
+            included = 1;
+         }
+      }
+   }
+   
+   if (statistics && included)
+   {
+      allo_count += 1;
+      allo_total += size;
+
+      (*jvmti)->GetFrameCount(jvmti, thread, &frame_count);
+      if (frame_count > max_depth)
+         max_depth = frame_count;
+   }
    
    (*jvmti)->Deallocate(jvmti, allocatedClassName);
 }
@@ -225,6 +246,45 @@ option_relative(char* option)
    relative = strstr(option, "relative") != NULL;
 }
 
+void
+option_includes(char* option)
+{
+   int i = 0;
+   int c = 0;
+   char* equal = strchr(option, '=');
+
+   if (equal != NULL)
+   {
+      char* c_settings = equal + 1;
+      char* d_settings = strdup(c_settings);
+      char* c_token = strtok(c_settings, ":");
+      while (c_token != NULL)
+      {
+         c += 1;
+         c_token = strtok(NULL, ":");
+      }
+
+      number_of_includes = c;
+      includes = (char**)malloc(number_of_includes * sizeof(char*));
+      
+      char* d_token = strtok(d_settings, ":");
+      while (d_token != NULL)
+      {
+         for (c = 0; c < strlen(d_token); c++)
+         {
+            if (d_token[c] == '.')
+               d_token[c] = '/';
+         }
+
+         includes[i] = strdup(d_token);
+         i++;
+         d_token = strtok(NULL, ":");
+      }
+
+      free(d_settings);
+   }
+}
+
 JNIEXPORT jint JNICALL 
 Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 {
@@ -247,6 +307,10 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
             {
                option_relative(token);
             }
+            else if (strstr(token, "includes") != NULL)
+            {
+               option_includes(token);
+            }
             token = strtok(NULL, ",");
          }
       }
@@ -263,6 +327,10 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
          else if (strstr(options, "relative") != NULL)
          {
             option_relative(options);
+         }
+         else if (strstr(options, "includes") != NULL)
+         {
+            option_includes(options);
          }
       }
    }
@@ -285,6 +353,15 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 JNIEXPORT void JNICALL 
 Agent_OnUnload(JavaVM *vm)
 {
+   int i = 0;
+
+   if (includes)
+   {
+      for (i = 0; i < number_of_includes; i++)
+         free(includes[i]);
+      free(includes);
+   }
+
    if (statistics)
    {
       printf("Allocation count: %ld\n", allo_count);
