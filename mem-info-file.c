@@ -20,11 +20,14 @@
 
 #include <sys/types.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include <error.h>
 #include <errno.h>
 
 #include "mem-info-file.h"
+
+char* buffer;
 
 FILE*
 mem_info_open(pid_t pid)
@@ -37,6 +40,10 @@ mem_info_open(pid_t pid)
    if (!res)
       error(0, errno, "Couldn't open %s.", filename);
 
+   if (!buffer)
+      buffer = (char *)malloc(8192 * sizeof(char));
+   setbuf(res, buffer);
+   
    return res;
 }
 
@@ -44,7 +51,13 @@ int
 mem_info_close(FILE* file)
 {
    if (file)
+   {
+      fflush(file);
+
+      free(buffer);
+      buffer = NULL;
       return fclose(file);
+   }
    else
       return 0;
 }
