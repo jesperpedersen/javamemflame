@@ -34,9 +34,20 @@ The following options are supported.
 `includes=<package>[:<package>]*`: Define the package(s) that should be included in the recorded information within the
 stack frame depth. Alternative is to use tools like `grep` after the run. Default is all packages.
 
-Multiple options can be selected using the ',' characters, like
+Multiple options can be selected using the ',' character, like
 
 	java -agentpath:/path/to/libjavamemflame.so=depth=8,includes=bar.foo.pkg1:bar.foo.pkg2 ...
+
+## Tricks
+
+The `mem-info-<pid>.txt` file can get quite huge in size, and therefore the resulting flame graph as well.
+
+However, the `mem-info-<pid>.txt` file is in a text format, so standard tools can be used to
+find the information needed.
+
+Show the top 10 allocation traces
+	sort mem-info-<pid>.txt | uniq -c | sort -nr | head -10
+
 
 ## Thanks to
 
