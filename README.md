@@ -46,8 +46,10 @@ However, the `mem-info-<pid>.txt` file is in a text format, so standard tools ca
 find the information needed.
 
 Show the top 10 allocation traces
-	sort mem-info-<pid>.txt | uniq -c | sort -nr | head -10
 
+<pre>
+sort mem-info-&lt;pid&gt;.txt | uniq -c | sort -nr | head -10
+</pre>
 
 ## Thanks to
 
