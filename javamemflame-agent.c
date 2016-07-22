@@ -1,7 +1,7 @@
 /*
  * libmemagent: JVM agent to track memory allocations
  *
- * Copyright (C) 2015 Jesper Pedersen <jesper.pedersen@comcast.net>
+ * Copyright (C) 2016 Jesper Pedersen <jesper.pedersen@comcast.net>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -107,6 +107,20 @@ void clean_class_name(char *dest, size_t dest_size, char *signature) {
 }
 
 static void
+class_name(jvmtiEnv *jvmti, jmethodID method, char *output, size_t noutput)
+{
+   jclass class;
+   char *csig;
+
+   (*jvmti)->GetMethodDeclaringClass(jvmti, method, &class);
+   (*jvmti)->GetClassSignature(jvmti, class, &csig, NULL);
+
+   snprintf(output, noutput, "%s", csig);
+
+   (*jvmti)->Deallocate(jvmti, csig);
+}
+
+static void
 signature_string(jvmtiEnv *jvmti, jmethodID method, char *output, size_t noutput)
 {
    char *name;
@@ -141,54 +155,69 @@ callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject obj
 
    int included = 0;
    
-   snprintf(line, sizeof(line), "java;");
-   
    (*jvmti)->GetClassSignature(jvmti, object_klass, &allocatedClassName, NULL);
-
-   clean_class_name(cleaned_allocated_class_name, sizeof(cleaned_allocated_class_name), allocatedClassName);
-
    (*jvmti)->GetStackTrace(jvmti, thread, (jint)0, (jint)depth, (jvmtiFrameInfo *)&frames, &count);
-
-   for (i = count - 1; i >= 0; i--)
-   {
-      char entry[1024];
-      signature_string(jvmti, frames[i].method, entry, sizeof(entry));
-
-      strcat(line, entry);
-      strcat(line, ";");
-   }
-
-   snprintf(allocated_info, sizeof(allocated_info), "%s(%d) %d", cleaned_allocated_class_name, (jint)size,
-            relative ? (jint)size : 1);
-   
-   strcat(line, allocated_info);
 
    if (includes == NULL)
    {
-      mem_info_write_entry(file, line);
       included = 1;
    }
    else
    {
+      char verify[2048];
+
+      snprintf(verify, sizeof(verify), allocatedClassName);
+      strcat(verify, ";");
+
+      for (i = count - 1; i >= 0; i--)
+      {
+         char clz[1024];
+         class_name(jvmti, frames[i].method, clz, sizeof(clz));
+
+         strcat(verify, clz);
+         strcat(verify, ";");
+      }
+
       for (i = 0; i < number_of_includes && !included; i++)
       {
          char* entry = includes[i];
-         if (strstr(line, entry) != NULL)
-         {
-            mem_info_write_entry(file, line);
+
+         if (strstr(verify, entry) != NULL)
             included = 1;
-         }
       }
    }
    
-   if (statistics && included)
+   if (included)
    {
-      allo_count += 1;
-      allo_total += size;
+      snprintf(line, sizeof(line), "java;");
 
-      (*jvmti)->GetFrameCount(jvmti, thread, &frame_count);
-      if (frame_count > max_depth)
-         max_depth = frame_count;
+      clean_class_name(cleaned_allocated_class_name, sizeof(cleaned_allocated_class_name), allocatedClassName);
+
+      for (i = count - 1; i >= 0; i--)
+      {
+         char entry[1024];
+         signature_string(jvmti, frames[i].method, entry, sizeof(entry));
+
+         strcat(line, entry);
+         strcat(line, ";");
+      }
+
+      snprintf(allocated_info, sizeof(allocated_info), "%s(%d) %d", cleaned_allocated_class_name, (jint)size,
+               relative ? (jint)size : 1);
+
+      strcat(line, allocated_info);
+
+      mem_info_write_entry(file, line);
+
+      if (statistics)
+      {
+         allo_count += 1;
+         allo_total += size;
+
+         (*jvmti)->GetFrameCount(jvmti, thread, &frame_count);
+         if (frame_count > max_depth)
+            max_depth = frame_count;
+      }
    }
    
    (*jvmti)->Deallocate(jvmti, allocatedClassName);
@@ -200,13 +229,7 @@ enable_capabilities(jvmtiEnv *jvmti)
    jvmtiCapabilities capabilities;
 
    memset(&capabilities,0, sizeof(capabilities));
-   capabilities.can_generate_all_class_hook_events  = 1;
-   capabilities.can_tag_objects                     = 1;
-   capabilities.can_generate_object_free_events     = 1;
-   capabilities.can_get_source_file_name            = 1;
-   capabilities.can_get_line_numbers                = 1;
    capabilities.can_generate_vm_object_alloc_events = 1;
-   capabilities.can_generate_compiled_method_load_events = 1;
 
    // Request these capabilities for this JVM TI environment.
    return (*jvmti)->AddCapabilities(jvmti, &capabilities);
@@ -290,48 +313,26 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
 {
    if (options != NULL)
    {
-      if (strchr(options, ',') != NULL)
+      char* token = strtok(options, ",");
+      while (token != NULL)
       {
-         char* token = strtok(options, ",");
-         while (token != NULL)
+         if (strstr(token, "depth") != NULL)
          {
-            if (strstr(token, "depth") != NULL)
-            {
-               option_depth(token);
-            }
-            else if (strstr(token, "statistics") != NULL)
-            {
-               option_statistics(token);
-            }
-            else if (strstr(token, "relative") != NULL)
-            {
-               option_relative(token);
-            }
-            else if (strstr(token, "includes") != NULL)
-            {
-               option_includes(token);
-            }
-            token = strtok(NULL, ",");
+            option_depth(token);
          }
-      }
-      else
-      {
-         if (strstr(options, "depth") != NULL)
+         else if (strstr(token, "statistics") != NULL)
          {
-            option_depth(options);
+            option_statistics(token);
          }
-         else if (strstr(options, "statistics") != NULL)
+         else if (strstr(token, "relative") != NULL)
          {
-            option_statistics(options);
+            option_relative(token);
          }
-         else if (strstr(options, "relative") != NULL)
+         else if (strstr(token, "includes") != NULL)
          {
-            option_relative(options);
+            option_includes(token);
          }
-         else if (strstr(options, "includes") != NULL)
-         {
-            option_includes(options);
-         }
+         token = strtok(NULL, ",");
       }
    }
 
