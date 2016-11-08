@@ -34,6 +34,10 @@ The following options are supported.
 `includes=<package>[:<package>]*`: Define the package(s) that should be included in the recorded information within the
 stack frame depth. Alternative is to use tools like `grep` after the run. Default is all packages.
 
+`delay=<number>`: Delays the recording by the specified number of milliseconds.
+
+`duration=<number>`: Record by the specified number of milliseconds.
+
 Multiple options can be selected using the ',' character, like
 
 	java -agentpath:/path/to/libjavamemflame.so=depth=8,includes=bar.foo.pkg1:bar.foo.pkg2 ...

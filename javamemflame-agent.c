@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <sys/time.h>
 #include <sys/types.h>
 
 #include <jni.h>
@@ -40,8 +41,20 @@ int max_depth = 0;
 int relative = 0;
 char** includes = NULL;
 int number_of_includes = 0;
+double start_time = 0;
+long delay = 0;
+long duration = 0;
 
-void clean_class_name(char *dest, size_t dest_size, char *signature) {
+static double
+get_time_ms()
+{
+   struct timeval t;
+   gettimeofday(&t, NULL);
+   return (t.tv_sec + (t.tv_usec / 1000000.0)) * 1000.0;
+}
+
+static void
+clean_class_name(char *dest, size_t dest_size, char *signature) {
    int array_counter, array = 0;
    int i = 0;
    
@@ -154,6 +167,19 @@ callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject obj
    char line[2048];
 
    int included = 0;
+
+   if (start_time != 0)
+   {
+      double current_time = get_time_ms();
+      if (delay != 0)
+      {
+         if (current_time < (start_time + delay))
+            return;
+      }
+
+      if (current_time > (start_time + delay + duration))
+         return;
+   }
    
    (*jvmti)->GetClassSignature(jvmti, object_klass, &allocatedClassName, NULL);
    (*jvmti)->GetStackTrace(jvmti, thread, (jint)0, (jint)depth, (jvmtiFrameInfo *)&frames, &count);
@@ -223,7 +249,7 @@ callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject obj
    (*jvmti)->Deallocate(jvmti, allocatedClassName);
 }
 
-jvmtiError
+static jvmtiError
 enable_capabilities(jvmtiEnv *jvmti)
 {
    jvmtiCapabilities capabilities;
@@ -235,7 +261,7 @@ enable_capabilities(jvmtiEnv *jvmti)
    return (*jvmti)->AddCapabilities(jvmti, &capabilities);
 }
 
-jvmtiError
+static jvmtiError
 set_callbacks(jvmtiEnv *jvmti)
 {
    jvmtiEventCallbacks callbacks;
@@ -245,7 +271,31 @@ set_callbacks(jvmtiEnv *jvmti)
    return (*jvmti)->SetEventCallbacks(jvmti, &callbacks, (jint)sizeof(callbacks));
 }
 
-void
+static void
+option_delay(char* option)
+{
+   char* equal = strchr(option, '=');
+   if (equal != NULL)
+   {
+      long d = atol(equal + 1);
+      if (d > 0)
+         delay = d;
+   }
+}
+
+static void
+option_duration(char* option)
+{
+   char* equal = strchr(option, '=');
+   if (equal != NULL)
+   {
+      long d = atol(equal + 1);
+      if (d > 0)
+         duration = d;
+   }
+}
+
+static void
 option_depth(char* option)
 {
    char* equal = strchr(option, '=');
@@ -257,19 +307,19 @@ option_depth(char* option)
    }
 }
 
-void
+static void
 option_statistics(char* option)
 {
    statistics = strstr(option, "statistics") != NULL;
 }
 
-void
+static void
 option_relative(char* option)
 {
    relative = strstr(option, "relative") != NULL;
 }
 
-void
+static void
 option_includes(char* option)
 {
    int i = 0;
@@ -332,11 +382,21 @@ Agent_OnLoad(JavaVM *vm, char *options, void *reserved)
          {
             option_includes(token);
          }
+         else if (strstr(token, "delay") != NULL)
+         {
+            option_delay(token);
+         }
+         else if (strstr(token, "duration") != NULL)
+         {
+            option_duration(token);
+         }
          token = strtok(NULL, ",");
       }
    }
 
    file = mem_info_open(getpid());
+   if (delay != 0 || duration != 0)
+      start_time = get_time_ms();
 
    jvmtiEnv *jvmti;
    (*vm)->GetEnv(vm, (void **)&jvmti, JVMTI_VERSION_1);
