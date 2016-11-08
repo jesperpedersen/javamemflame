@@ -55,6 +55,19 @@ Show the top 10 allocation traces
 sort mem-info-&lt;pid&gt;.txt | uniq -c | sort -nr | head -10
 </pre>
 
+Filter removed allocations between two runs to ```removed.txt```
+
+<pre>
+diff -U 0 mem-info-&lt;pid1&gt;.txt mem-info-&lt;pid2&gt;.txt | grep "\-java" | cut -c 2- > removed.txt
+</pre>
+
+Filter added allocations between two runs to ```added.txt```
+
+<pre>
+diff -U 0 mem-info-&lt;pid1&gt;.txt mem-info-&lt;pid2&gt;.txt | grep "\+java" | cut -c 2- > added.txt
+</pre>
+
+
 ## Thanks to
 
 * [Johannes Rudolph](http://github.com/jrudolph "Johannes Rudolph")
