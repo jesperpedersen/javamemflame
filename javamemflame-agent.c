@@ -178,7 +178,15 @@ callbackVMObjectAlloc(jvmtiEnv *jvmti, JNIEnv* jni, jthread thread,  jobject obj
       }
 
       if (current_time > (start_time + delay + duration))
+      {
+         if (file)
+         {
+            mem_info_close(file);
+            file = NULL;
+         }
+
          return;
+      }
    }
    
    (*jvmti)->GetClassSignature(jvmti, object_klass, &allocatedClassName, NULL);
@@ -430,6 +438,9 @@ Agent_OnUnload(JavaVM *vm)
       printf("Max frame depth : %d\n", max_depth);
    }
 
-   mem_info_close(file);
-   file = NULL;
+   if (file)
+   {
+      mem_info_close(file);
+      file = NULL;
+   }
 }
