@@ -1,0 +1,3 @@
+Premain-Class: org.jboss.javamemflame.agent.Agent
+Agent-Class: org.jboss.javamemflame.agent.Agent
+Main-Class: org.jboss.javamemflame.Main
