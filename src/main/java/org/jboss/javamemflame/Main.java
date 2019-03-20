@@ -133,8 +133,11 @@ public class Main
 
          String file = args[0];
          Path path = Paths.get(file);
-         long pid = Long.valueOf(file.substring(file.indexOf("-") + 1, file.indexOf(".")));
+         long pid = 0;
          Set<String> includes = null;
+
+         if (file.indexOf("-") != -1 && file.indexOf(".") != -1)
+            pid = Long.valueOf(file.substring(file.indexOf("-") + 1, file.indexOf(".")));
 
          if (args.length > 1)
          {
