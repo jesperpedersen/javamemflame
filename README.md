@@ -23,7 +23,7 @@ java -javaagent:/path/to/javamemflame.jar ...
 Then the information can be turned into a flame graph using
 
 ```sh
-/path/to/FlameGraph/flamegraph.pl --color=java mem-info-<pid>.txt > javamem.svg
+/path/to/FlameGraph/flamegraph.pl --flamechart --color=java mem-info-<pid>.txt > javamem.svg
 ```
 
 The result `javamem.svg` can be viewed with any SVG viewer, like Firefox.
