@@ -10,9 +10,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.StringTokenizer;
 import jdk.jfr.consumer.RecordedClass;
@@ -149,6 +150,7 @@ public class Main
          Path path = Paths.get(file);
          long pid = 0;
          Set<String> includes = null;
+         Map<String, Long> allocs = new HashMap<>();
 
          if (file.indexOf("-") != -1 && file.indexOf(".") != -1)
             pid = Long.valueOf(file.substring(file.indexOf("-") + 1, file.indexOf(".")));
@@ -204,14 +206,17 @@ public class Main
 
                         RecordedClass rc = (RecordedClass)re.getValue("objectClass");
                         sb.append(translate(rc.getName()));
-                        sb.append(" ");
-                        sb.append(re.getLong("allocationSize"));
 
                         String entry = sb.toString();
 
                         if (includes == null)
                         {
-                           append(writer, entry);
+                           Long alloc = allocs.get(entry);
+                           if (alloc == null)
+                              alloc = Long.valueOf(0);
+
+                           alloc = Long.valueOf(alloc.longValue() + re.getLong("allocationSize"));
+                           allocs.put(entry, alloc);
                         }
                         else
                         {
@@ -219,7 +224,12 @@ public class Main
                            {
                               if (entry.contains(include))
                               {
-                                 append(writer, entry);
+                                 Long alloc = allocs.get(entry);
+                                 if (alloc == null)
+                                    alloc = Long.valueOf(0);
+
+                                 alloc = Long.valueOf(alloc.longValue() + re.getLong("allocationSize"));
+                                 allocs.put(entry, alloc);
                                  break;
                               }
                            }
@@ -228,6 +238,11 @@ public class Main
                   }
                }
             }
+         }
+
+         for (Map.Entry<String, Long> entry : allocs.entrySet())
+         {
+            append(writer, entry.getKey() + " " + entry.getValue());
          }
 
          rcf.close();
