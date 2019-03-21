@@ -2,7 +2,7 @@ javamemflame will generate a `mem-info-<pid>.txt` file with Java memory allocati
 
 ## Requirements
 
-* Java 9
+* Java 11
 * Apache Maven
 * [http://github.com/brendangregg/FlameGraph](http://github.com/brendangregg/FlameGraph "FlameGraph")
 
@@ -66,7 +66,7 @@ find the information needed.
 Show the top 10 allocation traces
 
 <pre>
-sort mem-info-&lt;pid&gt;.txt | uniq -c | sort -nr | head -10
+head -10 mem-info-&lt;pid&gt;.txt
 </pre>
 
 Filter removed allocations between two runs to ```removed.txt```

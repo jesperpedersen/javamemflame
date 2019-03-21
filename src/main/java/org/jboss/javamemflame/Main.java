@@ -10,8 +10,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -131,6 +135,32 @@ public class Main
    }
 
    /**
+    * Sort the map by value
+    * @param m The unsorted map
+    * @return The sorted map
+    */
+   private static Map<String, Long> sortByValue(Map<String, Long> m)
+   {
+      List<Map.Entry<String, Long>> l = new LinkedList<>(m.entrySet());
+
+      Collections.sort(l, new Comparator<Map.Entry<String, Long>>()
+      {
+         public int compare(Map.Entry<String, Long> o1, Map.Entry<String, Long> o2)
+         {
+            return o2.getValue().compareTo(o1.getValue());
+         }
+      });
+
+      Map<String, Long> sorted = new LinkedHashMap<>();
+      for (Map.Entry<String, Long> entry : l)
+      {
+         sorted.put(entry.getKey(), entry.getValue());
+      }
+
+      return sorted;
+   }
+
+   /**
     * main
     * @parameter args The program arguments
     */
@@ -170,9 +200,8 @@ public class Main
             }
          }
 
-         
          RecordingFile rcf = new RecordingFile​(path);
-                  
+
          while (rcf.hasMoreEvents())
          {
             RecordedEvent re = rcf.readEvent();
@@ -240,7 +269,7 @@ public class Main
             }
          }
 
-         for (Map.Entry<String, Long> entry : allocs.entrySet())
+         for (Map.Entry<String, Long> entry : sortByValue(allocs).entrySet())
          {
             append(writer, entry.getKey() + " " + entry.getValue());
          }
