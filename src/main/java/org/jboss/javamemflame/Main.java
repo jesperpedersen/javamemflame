@@ -1,7 +1,7 @@
 /*
  * JVM agent to track memory allocations
  *
- * Copyright (C) 2018 Jesper Pedersen <jesper.pedersen@comcast.net>
+ * Copyright (C) 2019 Jesper Pedersen <jesper.pedersen@comcast.net>
  */
 package org.jboss.javamemflame;
 
@@ -28,22 +28,36 @@ import jdk.jfr.consumer.RecordingFile;
 public class Main
 {
    /**
-    * Write data to a file
+    * Open a file
     * @param p The path of the file
-    * @param l The data
+    * @return The file
     */
-   private static void writeFile(Path p, List<String> l) throws Exception
+   private static BufferedWriter openFile(Path p) throws Exception
    {
       BufferedWriter bw = Files.newBufferedWriter(p,
                                                   StandardOpenOption.CREATE,
                                                   StandardOpenOption.WRITE,
                                                   StandardOpenOption.TRUNCATE_EXISTING);
-      for (String s : l)
-      {
-         bw.write(s, 0, s.length());
-         bw.newLine();
-      }
+      return bw;
+   }
 
+   /**
+    * Append data to a file
+    * @param bw The file
+    * @param s The string
+    */
+   private static void append(BufferedWriter bw, String s) throws Exception
+   {
+      bw.write(s, 0, s.length());
+      bw.newLine();
+   }
+
+   /**
+    * Close a file
+    * @param bw The file
+    */
+   private static void closeFile(BufferedWriter bw) throws Exception
+   {
       bw.flush();
       bw.close();
    }
@@ -139,6 +153,8 @@ public class Main
          if (file.indexOf("-") != -1 && file.indexOf(".") != -1)
             pid = Long.valueOf(file.substring(file.indexOf("-") + 1, file.indexOf(".")));
 
+         BufferedWriter writer = openFile(Paths.get("mem-info-" + pid + ".txt"));
+
          if (args.length > 1)
          {
             includes = new HashSet<>();
@@ -153,54 +169,59 @@ public class Main
          }
 
          
-         List<String> l = new ArrayList<>();
          RecordingFile rcf = new RecordingFile​(path);
                   
          while (rcf.hasMoreEvents())
          {
             RecordedEvent re = rcf.readEvent();
-            if (re.hasField("stackTrace"))
+            String eventName = re.getEventType().getName();
+
+            if ("jdk.ObjectAllocationInNewTLAB".equals(eventName) ||
+                "jdk.ObjectAllocationOutsideTLAB".equals(eventName))
             {
-               RecordedStackTrace st = (RecordedStackTrace)re.getValue("stackTrace");
-
-               if (st != null)
+               if (re.hasField("stackTrace") && re.hasField("objectClass") && re.hasField("allocationSize"))
                {
-                  List<RecordedFrame> lrf = st.getFrames();
-                  if (lrf != null && lrf.size() > 0)
+                  RecordedStackTrace st = (RecordedStackTrace)re.getValue("stackTrace");
+
+                  if (st != null)
                   {
-                     StringBuilder sb = new StringBuilder();
-                     sb.append("java;");
-
-                     for (int i = lrf.size() - 1; i >= 0; i--)
+                     List<RecordedFrame> lrf = st.getFrames();
+                     if (lrf != null && lrf.size() > 0)
                      {
-                        RecordedFrame rf = st.getFrames().get(i);
-                        RecordedMethod rm = rf.getMethod();
-                        RecordedClass rc = rm.getType();
-                        sb.append(rc.getName().replace('.', '/'));
-                        sb.append(":.");
-                        sb.append(rm.getName());
-                        sb.append(";");
-                     }
+                        StringBuilder sb = new StringBuilder();
+                        sb.append("java;");
 
-                     RecordedClass rc = (RecordedClass)re.getValue("objectClass");
-                     sb.append(translate(rc.getName()));
-                     sb.append(" ");
-                     sb.append(re.getLong("allocationSize"));
-               
-                     String entry = sb.toString();
-
-                     if (includes == null)
-                     {
-                        l.add(entry);
-                     }
-                     else
-                     {
-                        for (String include : includes)
+                        for (int i = lrf.size() - 1; i >= 0; i--)
                         {
-                           if (entry.contains(include))
+                           RecordedFrame rf = st.getFrames().get(i);
+                           RecordedMethod rm = rf.getMethod();
+                           RecordedClass rc = rm.getType();
+                           sb.append(rc.getName().replace('.', '/'));
+                           sb.append(":.");
+                           sb.append(rm.getName());
+                           sb.append(";");
+                        }
+
+                        RecordedClass rc = (RecordedClass)re.getValue("objectClass");
+                        sb.append(translate(rc.getName()));
+                        sb.append(" ");
+                        sb.append(re.getLong("allocationSize"));
+
+                        String entry = sb.toString();
+
+                        if (includes == null)
+                        {
+                           append(writer, entry);
+                        }
+                        else
+                        {
+                           for (String include : includes)
                            {
-                              l.add(entry);
-                              break;
+                              if (entry.contains(include))
+                              {
+                                 append(writer, entry);
+                                 break;
+                              }
                            }
                         }
                      }
@@ -210,15 +231,7 @@ public class Main
          }
 
          rcf.close();
-         
-         if (l.size() > 0)
-         {
-            writeFile(Paths.get("mem-info-" + pid + ".txt"), l);
-         }
-         else
-         {
-            System.out.println("No data detected for: " + file);
-         }
+         closeFile(writer);
       }
       catch (Exception e)
       {
