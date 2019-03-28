@@ -124,7 +124,7 @@ public class Main
       }
       else if (input.charAt(i) == 'L')
       {
-         sb.append(input.substring(i + 1));
+         sb.append(input.substring(i + 1, input.length() - 1));
       }
       else
       {
