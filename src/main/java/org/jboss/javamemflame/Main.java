@@ -12,7 +12,6 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -20,6 +19,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringTokenizer;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import jdk.jfr.consumer.RecordedClass;
 import jdk.jfr.consumer.RecordedEvent;
 import jdk.jfr.consumer.RecordedFrame;
@@ -139,20 +144,32 @@ public class Main
     * @param m The unsorted map
     * @return The sorted map
     */
-   private static Map<String, Long> sortByValue(Map<String, Long> m)
+   private static Map<String, AtomicLong> sortByValue(Map<String, AtomicLong> m)
    {
-      List<Map.Entry<String, Long>> l = new LinkedList<>(m.entrySet());
+      List<Map.Entry<String, AtomicLong>> l = new LinkedList<>(m.entrySet());
 
-      Collections.sort(l, new Comparator<Map.Entry<String, Long>>()
+      Collections.sort(l, new Comparator<Map.Entry<String, AtomicLong>>()
       {
-         public int compare(Map.Entry<String, Long> o1, Map.Entry<String, Long> o2)
+         public int compare(Map.Entry<String, AtomicLong> o1, Map.Entry<String, AtomicLong> o2)
          {
-            return o2.getValue().compareTo(o1.getValue());
+            long l1 = o1.getValue().get();
+            long l2 = o2.getValue().get();
+
+            if (l2 > l1)
+            {
+               return 1;
+            }
+            else if (l2 < l1)
+            {
+               return -1;
+            }
+
+            return 0;
          }
       });
 
-      Map<String, Long> sorted = new LinkedHashMap<>();
-      for (Map.Entry<String, Long> entry : l)
+      Map<String, AtomicLong> sorted = new LinkedHashMap<>();
+      for (Map.Entry<String, AtomicLong> entry : l)
       {
          sorted.put(entry.getKey(), entry.getValue());
       }
@@ -172,26 +189,36 @@ public class Main
          {
             System.out.println("javamemflame: Recording flamegraph data for Java memory allocations");
             System.out.println("");
-            System.out.println("Usage: java -jar javamemflame.jar <file_name> [include[,include]*]");
-
+            System.out.println("Usage: java -jar javamemflame.jar [-t num] <file_name> [include[,include]*]");
+            return;
          }
 
-         String file = args[0];
+         int i = 0;
+         int threads = 1;
+
+         if ("-t".equals(args[i]))
+         {
+            i++;
+            threads = Integer.valueOf(args[i]);
+            i++;
+         }
+
+         String file = args[i];
          Path path = Paths.get(file);
          long pid = 0;
          Set<String> includes = null;
-         Map<String, Long> allocs = new HashMap<>();
+         ConcurrentMap<String, AtomicLong> allocs = new ConcurrentHashMap<>();
 
          if (file.indexOf("-") != -1 && file.indexOf(".") != -1)
             pid = Long.valueOf(file.substring(file.indexOf("-") + 1, file.indexOf(".")));
 
          BufferedWriter writer = openFile(Paths.get("mem-info-" + pid + ".txt"));
 
-         if (args.length > 1)
+         if (args.length > i + 1)
          {
             includes = new HashSet<>();
 
-            StringTokenizer st = new StringTokenizer(args[1], ",");
+            StringTokenizer st = new StringTokenizer(args[i + 1], ",");
             while (st.hasMoreTokens())
             {
                String include = st.nextToken();
@@ -202,74 +229,31 @@ public class Main
 
          RecordingFile rcf = new RecordingFile​(path);
 
-         while (rcf.hasMoreEvents())
+         if (threads > 1)
          {
-            RecordedEvent re = rcf.readEvent();
-            String eventName = re.getEventType().getName();
+            ExecutorService es = Executors.newFixedThreadPool(threads);
 
-            if ("jdk.ObjectAllocationInNewTLAB".equals(eventName) ||
-                "jdk.ObjectAllocationOutsideTLAB".equals(eventName))
+            while (rcf.hasMoreEvents())
             {
-               if (re.hasField("stackTrace") && re.hasField("objectClass") && re.hasField("allocationSize"))
-               {
-                  RecordedStackTrace st = (RecordedStackTrace)re.getValue("stackTrace");
+               RecordedEvent re = rcf.readEvent();
+               ProcessEvent pe = new ProcessEvent(allocs, includes, re);
+               es.submit(pe);
+            }
 
-                  if (st != null)
-                  {
-                     List<RecordedFrame> lrf = st.getFrames();
-                     if (lrf != null && lrf.size() > 0)
-                     {
-                        StringBuilder sb = new StringBuilder();
-                        sb.append("java;");
-
-                        for (int i = lrf.size() - 1; i >= 0; i--)
-                        {
-                           RecordedFrame rf = st.getFrames().get(i);
-                           RecordedMethod rm = rf.getMethod();
-                           RecordedClass rc = rm.getType();
-                           sb.append(rc.getName().replace('.', '/'));
-                           sb.append(":.");
-                           sb.append(rm.getName());
-                           sb.append(";");
-                        }
-
-                        RecordedClass rc = (RecordedClass)re.getValue("objectClass");
-                        sb.append(translate(rc.getName()));
-
-                        String entry = sb.toString();
-
-                        if (includes == null)
-                        {
-                           Long alloc = allocs.get(entry);
-                           if (alloc == null)
-                              alloc = Long.valueOf(0);
-
-                           alloc = Long.valueOf(alloc.longValue() + re.getLong("allocationSize"));
-                           allocs.put(entry, alloc);
-                        }
-                        else
-                        {
-                           for (String include : includes)
-                           {
-                              if (entry.contains(include))
-                              {
-                                 Long alloc = allocs.get(entry);
-                                 if (alloc == null)
-                                    alloc = Long.valueOf(0);
-
-                                 alloc = Long.valueOf(alloc.longValue() + re.getLong("allocationSize"));
-                                 allocs.put(entry, alloc);
-                                 break;
-                              }
-                           }
-                        }
-                     }
-                  }
-               }
+            es.shutdown();
+            es.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);
+         }
+         else
+         {
+            while (rcf.hasMoreEvents())
+            {
+               RecordedEvent re = rcf.readEvent();
+               ProcessEvent pe = new ProcessEvent(allocs, includes, re);
+               pe.run();
             }
          }
 
-         for (Map.Entry<String, Long> entry : sortByValue(allocs).entrySet())
+         for (Map.Entry<String, AtomicLong> entry : sortByValue(allocs).entrySet())
          {
             append(writer, entry.getKey() + " " + entry.getValue());
          }
@@ -281,6 +265,106 @@ public class Main
       {
          System.err.println(e.getMessage());
          e.printStackTrace();
+      }
+   }
+
+   /**
+    * Process event
+    */
+   static class ProcessEvent implements Runnable
+   {
+      ConcurrentMap<String, AtomicLong> allocs;
+      Set<String> includes;
+      RecordedEvent re;
+
+      ProcessEvent(ConcurrentMap<String, AtomicLong> allocs, Set<String> includes, RecordedEvent re)
+      {
+         this.allocs = allocs;
+         this.includes = includes;
+         this.re = re;
+      }
+
+      /**
+       * Process
+       */
+      public void run()
+      {
+         String eventName = re.getEventType().getName();
+
+         if ("jdk.ObjectAllocationInNewTLAB".equals(eventName) ||
+             "jdk.ObjectAllocationOutsideTLAB".equals(eventName))
+         {
+            if (re.hasField("stackTrace") && re.hasField("objectClass") && re.hasField("allocationSize"))
+            {
+               RecordedStackTrace st = (RecordedStackTrace)re.getValue("stackTrace");
+
+               if (st != null)
+               {
+                  List<RecordedFrame> lrf = st.getFrames();
+                  if (lrf != null && lrf.size() > 0)
+                  {
+                     StringBuilder sb = new StringBuilder();
+                     sb.append("java;");
+
+                     for (int i = lrf.size() - 1; i >= 0; i--)
+                     {
+                        RecordedFrame rf = st.getFrames().get(i);
+                        RecordedMethod rm = rf.getMethod();
+                        RecordedClass rc = rm.getType();
+                        sb.append(rc.getName().replace('.', '/'));
+                        sb.append(":.");
+                        sb.append(rm.getName());
+                        sb.append(";");
+                     }
+
+                     RecordedClass rc = (RecordedClass)re.getValue("objectClass");
+                     sb.append(translate(rc.getName()));
+
+                     String entry = sb.toString();
+
+                     if (includes == null)
+                     {
+                        AtomicLong alloc = allocs.get(entry);
+                        if (alloc == null)
+                        {
+                           AtomicLong newAlloc = new AtomicLong(0);
+
+                           alloc = allocs.putIfAbsent(entry, newAlloc);
+                           if (alloc == null)
+                           {
+                              alloc = newAlloc;
+                           }
+                        }
+
+                        alloc.addAndGet(re.getLong("allocationSize"));
+                     }
+                     else
+                     {
+                        for (String include : includes)
+                        {
+                           if (entry.contains(include))
+                           {
+                              AtomicLong alloc = allocs.get(entry);
+                              if (alloc == null)
+                              {
+                                 AtomicLong newAlloc = new AtomicLong(0);
+
+                                 alloc = allocs.putIfAbsent(entry, newAlloc);
+                                 if (alloc == null)
+                                 {
+                                    alloc = newAlloc;
+                                 }
+                              }
+
+                              alloc.addAndGet(re.getLong("allocationSize"));
+                              break;
+                           }
+                        }
+                     }
+                  }
+               }
+            }
+         }
       }
    }
 }

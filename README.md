@@ -56,6 +56,12 @@ Optionally, the memory allocations can be filtered by package using
 java -jar javamemflame.jar javamemflame-pid.jfr package[,package]*
 ```
 
+javamemflame can use multiple threads to process the JFR file faster by
+
+```sh
+java -jar javamemflame.jar -t 8 javamemflame-pid.jfr
+```
+
 ## Tricks
 
 The `mem-info-<pid>.txt` file can get quite huge in size, and therefore the resulting flame graph as well.
