@@ -74,32 +74,39 @@ public class Agent
             }
          }
 
-         if (run && FlightRecorder.isAvailable() && FlightRecorder.isInitialized())
+         if (run)
          {
-            long pid = ProcessHandle.current().pid();
-            Path path = Paths.get("javamemflame-" + pid + ".jfr");
-
-            flightRecorder = FlightRecorder.getFlightRecorder();
-            r = new Recording();
-
-            for (EventType et : flightRecorder.getEventTypes())
+            if (FlightRecorder.isAvailable())
             {
-               r.disable(et.getName());
+               long pid = ProcessHandle.current().pid();
+               Path path = Paths.get("javamemflame-" + pid + ".jfr");
+
+               flightRecorder = FlightRecorder.getFlightRecorder();
+               r = new Recording();
+
+               for (EventType et : flightRecorder.getEventTypes())
+               {
+                  r.disable(et.getName());
+               }
+
+               r.enable​("jdk.ObjectAllocationInNewTLAB");
+               r.enable​("jdk.ObjectAllocationOutsideTLAB");
+
+               r.setDestination(path);
+               r.setDumpOnExit(true);
+
+               // We just start the recording; VMDeath will stop it automatically
+               if (duration != 0)
+               {
+                  r.setDuration(Duration.of(duration, MILLIS));
+               }
+
+               r.scheduleStart(Duration.of(delay, MILLIS));
             }
-
-            r.enable​("jdk.ObjectAllocationInNewTLAB");
-            r.enable​("jdk.ObjectAllocationOutsideTLAB");
-
-            r.setDestination(path);
-            r.setDumpOnExit(true);
-
-            // We just start the recording; VMDeath will stop it automatically
-            if (duration != 0)
+            else
             {
-               r.setDuration(Duration.of(duration, MILLIS));
+               System.err.println("FlightRecorder is not available");
             }
-
-            r.scheduleStart(Duration.of(delay, MILLIS));
          }
       }
       catch (Exception e)
