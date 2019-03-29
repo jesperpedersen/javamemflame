@@ -62,6 +62,12 @@ javamemflame can use multiple threads to process the JFR file faster by
 java -jar javamemflame.jar -t 8 javamemflame-pid.jfr
 ```
 
+Counting the number of allocations, instead of their total size, can be done using
+
+```sh
+java -jar javamemflame.jar -n javamemflame-pid.jfr
+```
+
 ## Tricks
 
 The `mem-info-<pid>.txt` file can get quite huge in size, and therefore the resulting flame graph as well.

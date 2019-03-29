@@ -189,18 +189,25 @@ public class Main
          {
             System.out.println("javamemflame: Recording flamegraph data for Java memory allocations");
             System.out.println("");
-            System.out.println("Usage: java -jar javamemflame.jar [-t num] <file_name> [include[,include]*]");
+            System.out.println("Usage: java -jar javamemflame.jar [-n] [-t num] <file_name> [include[,include]*]");
             return;
          }
 
          int i = 0;
          int threads = 1;
+         boolean size = true;
 
-         if ("-t".equals(args[i]))
+         for (i = 0; i < args.length - 1; i++)
          {
-            i++;
-            threads = Integer.valueOf(args[i]);
-            i++;
+            if ("-n".equals(args[i]))
+            {
+               size = false;
+            }
+            else if ("-t".equals(args[i]))
+            {
+               i++;
+               threads = Integer.valueOf(args[i]);
+            }
          }
 
          String file = args[i];
@@ -236,7 +243,7 @@ public class Main
             while (rcf.hasMoreEvents())
             {
                RecordedEvent re = rcf.readEvent();
-               ProcessEvent pe = new ProcessEvent(allocs, includes, re);
+               ProcessEvent pe = new ProcessEvent(allocs, includes, size, re);
                es.submit(pe);
             }
 
@@ -248,7 +255,7 @@ public class Main
             while (rcf.hasMoreEvents())
             {
                RecordedEvent re = rcf.readEvent();
-               ProcessEvent pe = new ProcessEvent(allocs, includes, re);
+               ProcessEvent pe = new ProcessEvent(allocs, includes, size, re);
                pe.run();
             }
          }
@@ -275,12 +282,14 @@ public class Main
    {
       ConcurrentMap<String, AtomicLong> allocs;
       Set<String> includes;
+      boolean size;
       RecordedEvent re;
 
-      ProcessEvent(ConcurrentMap<String, AtomicLong> allocs, Set<String> includes, RecordedEvent re)
+      ProcessEvent(ConcurrentMap<String, AtomicLong> allocs, Set<String> includes, boolean size, RecordedEvent re)
       {
          this.allocs = allocs;
          this.includes = includes;
+         this.size = size;
          this.re = re;
       }
 
@@ -336,7 +345,14 @@ public class Main
                            }
                         }
 
-                        alloc.addAndGet(re.getLong("allocationSize"));
+                        if (size)
+                        {
+                           alloc.addAndGet(re.getLong("allocationSize"));
+                        }
+                        else
+                        {
+                           alloc.addAndGet(1);
+                        }
                      }
                      else
                      {
@@ -356,7 +372,14 @@ public class Main
                                  }
                               }
 
-                              alloc.addAndGet(re.getLong("allocationSize"));
+                              if (size)
+                              {
+                                 alloc.addAndGet(re.getLong("allocationSize"));
+                              }
+                              else
+                              {
+                                 alloc.addAndGet(1);
+                              }
                               break;
                            }
                         }
