@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -197,8 +198,12 @@ public class Main
          int threads = 1;
          boolean size = true;
          int cutoff = 0;
+         long pid = 0;
+         Set<String> includes = null;
+         ConcurrentMap<String, AtomicLong> allocs = new ConcurrentHashMap<>();
+         List<Path> paths = new ArrayList<>();
 
-         for (i = 0; i < args.length - 1; i++)
+         for (i = 0; i < args.length; i++)
          {
             if ("-n".equals(args[i]))
             {
@@ -214,56 +219,69 @@ public class Main
                i++;
                threads = Integer.valueOf(args[i]);
             }
+            else if (args[i].endsWith(".jfr"))
+            {
+               Path path = Paths.get(args[i]);
+               paths.add(path);
+            }
+            else
+            {
+               if (includes == null)
+                  includes = new HashSet<>();
+
+               StringTokenizer st = new StringTokenizer(args[i], ",");
+               while (st.hasMoreTokens())
+               {
+                  String include = st.nextToken();
+                  include = include.replace('.', '/');
+                  includes.add(include);
+               }
+            }
          }
 
-         String file = args[i];
-         Path path = Paths.get(file);
-         long pid = 0;
-         Set<String> includes = null;
-         ConcurrentMap<String, AtomicLong> allocs = new ConcurrentHashMap<>();
-
-         if (file.indexOf("-") != -1 && file.indexOf(".") != -1)
-            pid = Long.valueOf(file.substring(file.indexOf("-") + 1, file.indexOf(".")));
+         if (paths.size() == 0)
+         {
+            System.out.println("javamemflame: No .jfr files specified");
+            return;
+         }
+         else if (paths.size() == 1)
+         {
+            String file = paths.get(0).toFile().getName();
+            if (file.indexOf("-") != -1 && file.indexOf(".") != -1)
+               pid = Long.valueOf(file.substring(file.indexOf("-") + 1, file.indexOf(".")));
+         }
 
          BufferedWriter writer = openFile(Paths.get("mem-info-" + pid + ".txt"));
 
-         if (args.length > i + 1)
+         for (Path path : paths)
          {
-            includes = new HashSet<>();
+            RecordingFile rcf = new RecordingFile​(path);
 
-            StringTokenizer st = new StringTokenizer(args[i + 1], ",");
-            while (st.hasMoreTokens())
+            if (threads > 1)
             {
-               String include = st.nextToken();
-               include = include.replace('.', '/');
-               includes.add(include);
+               ExecutorService es = Executors.newFixedThreadPool(threads);
+
+               while (rcf.hasMoreEvents())
+               {
+                  RecordedEvent re = rcf.readEvent();
+                  ProcessEvent pe = new ProcessEvent(allocs, includes, size, re);
+                  es.submit(pe);
+               }
+
+               es.shutdown();
+               es.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);
             }
-         }
-
-         RecordingFile rcf = new RecordingFile​(path);
-
-         if (threads > 1)
-         {
-            ExecutorService es = Executors.newFixedThreadPool(threads);
-
-            while (rcf.hasMoreEvents())
+            else
             {
-               RecordedEvent re = rcf.readEvent();
-               ProcessEvent pe = new ProcessEvent(allocs, includes, size, re);
-               es.submit(pe);
+               while (rcf.hasMoreEvents())
+               {
+                  RecordedEvent re = rcf.readEvent();
+                  ProcessEvent pe = new ProcessEvent(allocs, includes, size, re);
+                  pe.run();
+               }
             }
 
-            es.shutdown();
-            es.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);
-         }
-         else
-         {
-            while (rcf.hasMoreEvents())
-            {
-               RecordedEvent re = rcf.readEvent();
-               ProcessEvent pe = new ProcessEvent(allocs, includes, size, re);
-               pe.run();
-            }
+            rcf.close();
          }
 
          for (Map.Entry<String, AtomicLong> entry : sortByValue(allocs).entrySet())
@@ -276,7 +294,6 @@ public class Main
             append(writer, entry.getKey() + " " + value);
          }
 
-         rcf.close();
          closeFile(writer);
       }
       catch (Exception e)
