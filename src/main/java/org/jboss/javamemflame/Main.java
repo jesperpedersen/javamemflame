@@ -196,12 +196,18 @@ public class Main
          int i = 0;
          int threads = 1;
          boolean size = true;
+         int cutoff = 0;
 
          for (i = 0; i < args.length - 1; i++)
          {
             if ("-n".equals(args[i]))
             {
                size = false;
+            }
+            else if ("-c".equals(args[i]))
+            {
+               i++;
+               cutoff = Integer.valueOf(args[i]);
             }
             else if ("-t".equals(args[i]))
             {
@@ -262,7 +268,12 @@ public class Main
 
          for (Map.Entry<String, AtomicLong> entry : sortByValue(allocs).entrySet())
          {
-            append(writer, entry.getKey() + " " + entry.getValue());
+            long value = entry.getValue().get();
+
+            if (value < cutoff)
+               break;
+
+            append(writer, entry.getKey() + " " + value);
          }
 
          rcf.close();

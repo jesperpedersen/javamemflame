@@ -62,6 +62,12 @@ javamemflame can use multiple threads to process the JFR file faster by
 java -jar javamemflame.jar -t 8 javamemflame-pid.jfr
 ```
 
+The report can be minimized by specifying a cutoff point, f.ex. 100MB, using
+
+```sh
+java -jar javamemflame.jar -c 100000000 javamemflame-pid.jfr
+```
+
 Counting the number of allocations, instead of their total size, can be done using
 
 ```sh
