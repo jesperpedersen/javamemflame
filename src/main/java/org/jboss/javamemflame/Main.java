@@ -13,6 +13,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
@@ -26,11 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import jdk.jfr.consumer.RecordedClass;
 import jdk.jfr.consumer.RecordedEvent;
-import jdk.jfr.consumer.RecordedFrame;
-import jdk.jfr.consumer.RecordedMethod;
-import jdk.jfr.consumer.RecordedStackTrace;
 import jdk.jfr.consumer.RecordingFile;
 
 /**
@@ -74,87 +71,20 @@ public class Main
    }
 
    /**
-    * Translate from byte code name to human readable name
-    * @param input The input
-    * @return Human readable
-    */
-   private static String translate(String input)
-   {
-      int array = 0;
-      int i = 0;
-
-      StringBuilder sb = new StringBuilder();
-   
-      while (input.charAt(i) == '[')
-      {
-         array++;
-         i++;
-      }
-   
-      if (input.charAt(i) == 'Z')
-      {
-         sb.append("boolean");
-      }
-      else if (input.charAt(i) == 'B')
-      {
-         sb.append("byte");
-      }
-      else if (input.charAt(i) == 'C')
-      {
-         sb.append("char");
-      }
-      else if (input.charAt(i) == 'D')
-      {
-         sb.append("double");
-      }
-      else if (input.charAt(i) == 'F')
-      {
-         sb.append("float");
-      }
-      else if (input.charAt(i) == 'I')
-      {
-         sb.append("int");
-      }
-      else if (input.charAt(i) == 'J')
-      {
-         sb.append("long");
-      }
-      else if (input.charAt(i) == 'S')
-      {
-         sb.append("short");
-      }
-      else if (input.charAt(i) == 'L')
-      {
-         sb.append(input.substring(i + 1, input.length() - 1));
-      }
-      else
-      {
-         sb.append(input.substring(i));
-      }
-
-      for (int array_counter = 0; array_counter < array; array_counter++)
-      {
-         sb.append("[]");
-      }
-   
-      return sb.toString();
-   }
-
-   /**
     * Sort the map by value
     * @param m The unsorted map
     * @return The sorted map
     */
-   private static Map<String, AtomicLong> sortByValue(Map<String, AtomicLong> m)
+   private static Map<String, Long> sortByValue(Map<String, Long> m)
    {
-      List<Map.Entry<String, AtomicLong>> l = new LinkedList<>(m.entrySet());
+      List<Map.Entry<String, Long>> l = new LinkedList<>(m.entrySet());
 
-      Collections.sort(l, new Comparator<Map.Entry<String, AtomicLong>>()
+      Collections.sort(l, new Comparator<Map.Entry<String, Long>>()
       {
-         public int compare(Map.Entry<String, AtomicLong> o1, Map.Entry<String, AtomicLong> o2)
+         public int compare(Map.Entry<String, Long> o1, Map.Entry<String, Long> o2)
          {
-            long l1 = o1.getValue().get();
-            long l2 = o2.getValue().get();
+            long l1 = o1.getValue().longValue();
+            long l2 = o2.getValue().longValue();
 
             if (l2 > l1)
             {
@@ -169,8 +99,8 @@ public class Main
          }
       });
 
-      Map<String, AtomicLong> sorted = new LinkedHashMap<>();
-      for (Map.Entry<String, AtomicLong> entry : l)
+      Map<String, Long> sorted = new LinkedHashMap<>();
+      for (Map.Entry<String, Long> entry : l)
       {
          sorted.put(entry.getKey(), entry.getValue());
       }
@@ -200,7 +130,7 @@ public class Main
          int cutoff = 0;
          long pid = 0;
          Set<String> includes = null;
-         ConcurrentMap<String, AtomicLong> allocs = new ConcurrentHashMap<>();
+         ConcurrentMap<Frame, AtomicLong> allocs = new ConcurrentHashMap<>();
          List<Path> paths = new ArrayList<>();
 
          for (i = 0; i < args.length; i++)
@@ -284,9 +214,22 @@ public class Main
             rcf.close();
          }
 
-         for (Map.Entry<String, AtomicLong> entry : sortByValue(allocs).entrySet())
+         Map<String, Long> folded = new HashMap<>();
+         for (Map.Entry<Frame, AtomicLong> entry : allocs.entrySet())
          {
-            long value = entry.getValue().get();
+            String key = entry.getKey().toString();
+            Long l = folded.get(key);
+
+            if (l == null)
+               l = Long.valueOf(0);
+
+            l = Long.valueOf(l.longValue() + entry.getValue().get());
+            folded.put(key, l);
+         }
+
+         for (Map.Entry<String, Long> entry : sortByValue(folded).entrySet())
+         {
+            long value = entry.getValue().longValue();
 
             if (value < cutoff)
                break;
@@ -300,122 +243,6 @@ public class Main
       {
          System.err.println(e.getMessage());
          e.printStackTrace();
-      }
-   }
-
-   /**
-    * Process event
-    */
-   static class ProcessEvent implements Runnable
-   {
-      ConcurrentMap<String, AtomicLong> allocs;
-      Set<String> includes;
-      boolean size;
-      RecordedEvent re;
-
-      ProcessEvent(ConcurrentMap<String, AtomicLong> allocs, Set<String> includes, boolean size, RecordedEvent re)
-      {
-         this.allocs = allocs;
-         this.includes = includes;
-         this.size = size;
-         this.re = re;
-      }
-
-      /**
-       * Process
-       */
-      public void run()
-      {
-         String eventName = re.getEventType().getName();
-
-         if ("jdk.ObjectAllocationInNewTLAB".equals(eventName) ||
-             "jdk.ObjectAllocationOutsideTLAB".equals(eventName))
-         {
-            if (re.hasField("stackTrace") && re.hasField("objectClass") && re.hasField("allocationSize"))
-            {
-               RecordedStackTrace st = (RecordedStackTrace)re.getValue("stackTrace");
-
-               if (st != null)
-               {
-                  List<RecordedFrame> lrf = st.getFrames();
-                  if (lrf != null && lrf.size() > 0)
-                  {
-                     StringBuilder sb = new StringBuilder();
-                     sb.append("java;");
-
-                     for (int i = lrf.size() - 1; i >= 0; i--)
-                     {
-                        RecordedFrame rf = st.getFrames().get(i);
-                        RecordedMethod rm = rf.getMethod();
-                        RecordedClass rc = rm.getType();
-                        sb.append(rc.getName().replace('.', '/'));
-                        sb.append(":.");
-                        sb.append(rm.getName());
-                        sb.append(";");
-                     }
-
-                     RecordedClass rc = (RecordedClass)re.getValue("objectClass");
-                     sb.append(translate(rc.getName()));
-
-                     String entry = sb.toString();
-
-                     if (includes == null)
-                     {
-                        AtomicLong alloc = allocs.get(entry);
-                        if (alloc == null)
-                        {
-                           AtomicLong newAlloc = new AtomicLong(0);
-
-                           alloc = allocs.putIfAbsent(entry, newAlloc);
-                           if (alloc == null)
-                           {
-                              alloc = newAlloc;
-                           }
-                        }
-
-                        if (size)
-                        {
-                           alloc.addAndGet(re.getLong("allocationSize"));
-                        }
-                        else
-                        {
-                           alloc.addAndGet(1);
-                        }
-                     }
-                     else
-                     {
-                        for (String include : includes)
-                        {
-                           if (entry.contains(include))
-                           {
-                              AtomicLong alloc = allocs.get(entry);
-                              if (alloc == null)
-                              {
-                                 AtomicLong newAlloc = new AtomicLong(0);
-
-                                 alloc = allocs.putIfAbsent(entry, newAlloc);
-                                 if (alloc == null)
-                                 {
-                                    alloc = newAlloc;
-                                 }
-                              }
-
-                              if (size)
-                              {
-                                 alloc.addAndGet(re.getLong("allocationSize"));
-                              }
-                              else
-                              {
-                                 alloc.addAndGet(1);
-                              }
-                              break;
-                           }
-                        }
-                     }
-                  }
-               }
-            }
-         }
       }
    }
 }
