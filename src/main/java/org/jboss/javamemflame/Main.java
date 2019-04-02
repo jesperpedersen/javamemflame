@@ -36,41 +36,6 @@ import jdk.jfr.consumer.RecordingFile;
 public class Main
 {
    /**
-    * Open a file
-    * @param p The path of the file
-    * @return The file
-    */
-   private static BufferedWriter openFile(Path p) throws Exception
-   {
-      BufferedWriter bw = Files.newBufferedWriter(p,
-                                                  StandardOpenOption.CREATE,
-                                                  StandardOpenOption.WRITE,
-                                                  StandardOpenOption.TRUNCATE_EXISTING);
-      return bw;
-   }
-
-   /**
-    * Append data to a file
-    * @param bw The file
-    * @param s The string
-    */
-   private static void append(BufferedWriter bw, String s) throws Exception
-   {
-      bw.write(s, 0, s.length());
-      bw.newLine();
-   }
-
-   /**
-    * Close a file
-    * @param bw The file
-    */
-   private static void closeFile(BufferedWriter bw) throws Exception
-   {
-      bw.flush();
-      bw.close();
-   }
-
-   /**
     * Sort the map by value
     * @param m The unsorted map
     * @return The sorted map
@@ -120,11 +85,13 @@ public class Main
          {
             System.out.println("javamemflame: Recording flamegraph data for Java memory allocations");
             System.out.println("");
-            System.out.println("Usage: java -jar javamemflame.jar [-n] [-t num] <file_name> [include[,include]*]");
+            System.out.println("Usage: java -jar javamemflame.jar [-o svg|txt] [--title text] [-n] [-t num] <file_name> [include[,include]*]");
             return;
          }
 
          int i = 0;
+         boolean svg = true;
+         String title = "Flamegraph";
          int threads = 1;
          boolean size = true;
          int cutoff = 0;
@@ -149,6 +116,16 @@ public class Main
             {
                i++;
                threads = Integer.valueOf(args[i]);
+            }
+            else if ("-o".equals(args[i]))
+            {
+               i++;
+               svg = "svg".equals(args[i]);
+            }
+            else if ("--title".equals(args[i]))
+            {
+               i++;
+               title = args[i];
             }
             else if (args[i].endsWith(".jfr"))
             {
@@ -182,7 +159,15 @@ public class Main
                pid = Long.valueOf(file.substring(file.indexOf("-") + 1, file.indexOf(".")));
          }
 
-         BufferedWriter writer = openFile(Paths.get("mem-info-" + pid + ".txt"));
+         BufferedWriter writer;
+         if (svg)
+         {
+            writer = TextFile.openFile(Paths.get("javamemflame-" + pid + ".svg"));
+         }
+         else
+         {
+            writer = TextFile.openFile(Paths.get("javamemflame-" + pid + ".txt"));
+         }
 
          for (Path path : paths)
          {
@@ -228,13 +213,22 @@ public class Main
             folded.put(key, l);
          }
 
+         List<String> svgData = new ArrayList<>();
          for (Map.Entry<String, Long> entry : sortByValue(folded).entrySet())
          {
             long value = entry.getValue().longValue();
 
             if (value >= cutoff)
             {
-               append(writer, entry.getKey() + " " + value);
+               String s = entry.getKey() + " " + value;
+               if (svg)
+               {
+                  svgData.add(s);
+               }
+               else
+               {
+                  TextFile.append(writer, s);
+               }
             }
             else
             {
@@ -247,10 +241,25 @@ public class Main
             StringBuilder sb = new StringBuilder();
             sb.append("java;Filtered ");
             sb.append(filtered);
-            append(writer, sb.toString());
+
+            String s = sb.toString();
+            if (svg)
+            {
+               svgData.add(s);
+            }
+            else
+            {
+               TextFile.append(writer, s);
+            }
          }
 
-         closeFile(writer);
+         if (svg)
+         {
+            Flamegraph flamegraph = new Flamegraph(title, svgData);
+            flamegraph.write(writer);
+         }
+         
+         TextFile.closeFile(writer);
       }
       catch (Exception e)
       {
