@@ -128,6 +128,7 @@ public class Main
          int threads = 1;
          boolean size = true;
          int cutoff = 0;
+         long filtered = 0;
          long pid = 0;
          Set<String> includes = null;
          ConcurrentMap<Frame, AtomicLong> allocs = new ConcurrentHashMap<>();
@@ -231,10 +232,22 @@ public class Main
          {
             long value = entry.getValue().longValue();
 
-            if (value < cutoff)
-               break;
+            if (value >= cutoff)
+            {
+               append(writer, entry.getKey() + " " + value);
+            }
+            else
+            {
+               filtered += value;
+            }
+         }
 
-            append(writer, entry.getKey() + " " + value);
+         if (filtered > 0)
+         {
+            StringBuilder sb = new StringBuilder();
+            sb.append("java;Filtered ");
+            sb.append(filtered);
+            append(writer, sb.toString());
          }
 
          closeFile(writer);
