@@ -532,24 +532,28 @@ class Flamegraph
       sb.append(y + 10.5);
       sb.append("\">");
 
+      StringBuilder text = new StringBuilder();
       double size = 0;
       int i = 0;
       while (size + 7.5 < width && i < s.length())
       {
          char c = s.charAt(i);
-         sb.append(c);
+         text.append(c);
          i++;
 
          if (c == '&')
          {
-            sb.append(s.charAt(i));
-            sb.append(s.charAt(i + 1));
-            sb.append(s.charAt(i + 2));
+            text.append(s.charAt(i));
+            text.append(s.charAt(i + 1));
+            text.append(s.charAt(i + 2));
             i += 3;
          }
 
          size += 7.5;
       }
+
+      if (text.length() > 1)
+         sb.append(text.toString());
 
       sb.append("</text>");
 
